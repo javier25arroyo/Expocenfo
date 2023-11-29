@@ -1,27 +1,26 @@
 import board
-import digitalio
 import time
 import adafruit_hcsr04
 import adafruit_mpu6050
-import wifi
 import socketpool
-import adafruit_requests
-import simpleio
+import ssl
+import wifi
+import adafruit_requests as requests  # Agrega esta línea
 
-# Connect to Wi-Fi
-wifi.radio.connect(ssid="2.4G_Home", password="23140815")
+socket = socketpool.SocketPool(wifi.radio)
+https = requests.Session(socket, ssl.create_default_context())
 
-while True:
-    try:
-        # Check if the Wi-Fi connection is established
-        if wifi.radio.ipv4_address:
-            print("Connected to Wi-Fi")
-            break
-    except AttributeError:
-        pass
+print("Connecting...")
+wifi.radio.connect("sspi", "password")
+print("Connected to Wifi!")
 
+URL = "http://api.open-notify.org/iss-now.json"
 
-print("Connected to Wi-Fi")
+data = https.get(URL).json()
+print(data)
+long = data["iss_position"]["longitude"]
+lat = data["iss_position"]["latitude"]
+print(f"The International Space Station is located at {lat}, {long}")
 
 # Configura el pin Trig y el pin Echo del sensor HC-SR04
 trig = board.IO33
@@ -40,7 +39,10 @@ distancia_anterior = 0
 # Token del bot de Telegram
 TELEGRAM_BOT_TOKEN = "6420443163:AAG0SXFNkEMq5sB2EPyabrY6S9mGPk7W808"
 # ID de chat de Telegram
-TELEGRAM_CHAT_ID = "5880741389"
+TELEGRAM_CHAT_ID = 5880741389  # Corrige la definición del ID de chat como un número entero
+
+# Umbral de velocidad angular para detectar movimiento exponencial
+UMBRAL_VELOCIDAD_ANGULAR = 50  # Puedes ajustar este valor según tu necesidad
 
 def enviar_mensaje_telegram(mensaje):
     # Configuración de la conexión para enviar mensajes
@@ -51,7 +53,7 @@ def enviar_mensaje_telegram(mensaje):
     }
 
     try:
-        # Make the HTTP POST request
+        # Make the HTTP POST request with a timeout of 10 seconds
         response = adafruit_requests.post(url, json=parametros)
 
         # Check if the request was successful (status code 200)
@@ -61,7 +63,7 @@ def enviar_mensaje_telegram(mensaje):
             print(f"Error al enviar el mensaje a Telegram. Status code: {response.status_code}")
 
     except Exception as e:
-        print(f"Error durante la solicitud HTTP: {e}")
+        print(f"Error desconocido: {e}")
 
 while True:
     try:
@@ -79,11 +81,23 @@ while True:
         # Lecturas del sensor MPU6050
         accel_x, accel_y, accel_z = mpu.acceleration
         gyro_x, gyro_y, gyro_z = mpu.gyro
+
+        # Calcula la velocidad angular total
+        velocidad_angular_total = abs(gyro_x) + abs(gyro_y) + abs(gyro_z)
+
+        # Verifica si la velocidad angular supera el umbral
+        if velocidad_angular_total > UMBRAL_VELOCIDAD_ANGULAR:
+            mensaje_giroscopio = f"¡Movimiento exponencial detectado! Velocidad angular total: {velocidad_angular_total} grados/s"
+            enviar_mensaje_telegram(mensaje_giroscopio)
+
         print("Aceleración (m/s^2):", accel_x, accel_y, accel_z)
         print("Direccion de la silla (grados/s):", gyro_x, gyro_y, gyro_z)
-        print("Distancia:",dist)
+        print("Distancia:", dist)
 
     except RuntimeError as e:
         print(f"Error: {e}")
+
+    except Exception as e:  # Agrega este bloque para manejar excepciones generales
+        print(f"Error desconocido: {e}")
 
     time.sleep(0.5)
